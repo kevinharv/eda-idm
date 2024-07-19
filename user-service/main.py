@@ -1,4 +1,8 @@
 from confluent_kafka import Producer
+from faker import Faker
+import json
+
+fake = Faker()
 
 def delivery_report(err, msg):
     if err is not None:
@@ -12,7 +16,10 @@ conf = {
 
 producer = Producer(conf)
 
-for i in range(1000):
-    producer.produce('test_topic', key=str(i), value=f'Hello Kafka {i}', callback=delivery_report)
+for i in range(10):
+    user = {
+      "name": fake.name()  
+    }
+    producer.produce('users', key=str(i), value=json.dumps(user), callback=delivery_report)
 
 producer.flush()
