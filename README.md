@@ -1,6 +1,11 @@
 # Event Driven Identity Management System
 **Enable near real-time identity management solution.**
 
+# New Architecture
+1. RESTful microservices - DB for each
+1. Job scheduler - schedules actions based on events
+1. Job executor - calls each service
+
 # TEMP - To-Do
 1. Setup GitHub Actions to build all services
 1. PostgreSQL DB - single host (dev), DB per service
