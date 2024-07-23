@@ -35,24 +35,24 @@ engine = create_engine(DATABASE_URL)
 #         # await conn.run_sync(SQLModel.metadata.drop_all)
 #         await conn.run_sync(SQLModel.metadata.create_all)
 
-# @asynccontextmanager
-# async def lifespan(app: FastAPI):
-#     await init_db()
-#     yield
-
-
-app = FastAPI()
-
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    create_db_and_tables()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 def get_session():
     with Session(engine) as session:
         yield session
 
-@app.on_event("startup")
-def on_startup():
-    create_db_and_tables()
+# @app.on_event("startup")
+# def on_startup():
+#     create_db_and_tables()
 
 @app.get("/")
 def defaultHanlder():

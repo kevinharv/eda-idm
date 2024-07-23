@@ -44,6 +44,8 @@ services:
       - 80:80
     env_file:
       - user.env
+    depends_on:
+      - database
 
 volumes:
   dbdata:
