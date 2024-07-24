@@ -2,12 +2,8 @@ import os
 from fastapi import FastAPI, Depends, HTTPException
 from contextlib import asynccontextmanager
 from sqlmodel import Field, Session, SQLModel, create_engine, select
-from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
 from typing import List
-
+from time import sleep
 
 class Hero(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
@@ -15,28 +11,30 @@ class Hero(SQLModel, table=True):
     secret_name: str
     age: int | None = Field(default=None, index=True)
 
+
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_DATABASE = os.getenv("DB_DATABASE")
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_DATABASE}"
 
-# engine = create_async_engine(
-#     DATABASE_URL,
-#     echo=True,
-#     future=True,
-#     pool_size=5,
-# )
 
 engine = create_engine(DATABASE_URL)
 
-# async def init_db():
-#     async with engine.begin() as conn:
-#         # await conn.run_sync(SQLModel.metadata.drop_all)
-#         await conn.run_sync(SQLModel.metadata.create_all)
+def get_session():
+    with Session(engine) as session:
+        yield session
 
 def create_db_and_tables():
-    SQLModel.metadata.create_all(engine)
+    success = False
+    while not success:
+        try:
+            SQLModel.metadata.create_all(engine)
+            success = True
+        except:
+            print("Failed to apply DB migrations")
+            sleep(1)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -44,44 +42,62 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(lifespan=lifespan)
-
-def get_session():
-    with Session(engine) as session:
-        yield session
-
-# @app.on_event("startup")
-# def on_startup():
-#     create_db_and_tables()
+app = FastAPI(
+    title="EDA-IDM_UserService",
+    description="Synchronous API service for CRUD operations against users.",
+    version="0.1.0",
+    lifespan=lifespan,
+)
 
 @app.get("/")
 def defaultHanlder():
     return {"hello": "world"}
 
-@app.post("/items/", response_model=Hero)
-def create_item(item: Hero, session: Session = Depends(get_session)):
-    session.add(item)
-    session.commit()
-    session.refresh(item)
-    return item
 
-@app.get("/items/", response_model=List[Hero])
-def read_items(session: Session = Depends(get_session)):
+@app.post("/heroes", response_model=Hero)
+def create_hero(*, hero: Hero, session: Session = Depends(get_session)):
+    session.add(hero)
+    session.commit()
+    session.refresh(hero)
+    return hero
+
+
+@app.get("/heroes", response_model=List[Hero])
+def read_items(*, session: Session = Depends(get_session)):
     items = session.exec(select(Hero)).all()
     return items
 
-# @app.post("/heroes/")
-# def create_hero(hero: Hero):
-#     # with Session(engine) as session:
-#     with SessionLocal.begin() as session:
-#         session.add(hero)
-#         session.commit()
-#         session.refresh(hero)
-#         return hero
+
+@app.get("/heros/{id}", response_model=Hero)
+def get_hero(*, session: Session = Depends(get_session)):
+    hero = session.get(Hero, id)
+    if not hero:
+        raise HTTPException(status_code=404, detail="Hero not found")
+    return hero
 
 
-# @app.get("/heroes/")
-# def read_heroes():
-#     with SessionLocal.begin() as session:
-#         heroes = session.exec(select(Hero)).all()
-#         return heroes
+@app.patch("/heroes/{id}")
+def update_hero(*, hero: Hero, session: Session = Depends(get_session)):
+    # Get the hero from the DB - throw 404 if not in DB
+    db_hero = session.get(Hero, id)
+    if not db_hero:
+        raise HTTPException(status_code=404, detail="Hero not found")
+    # Create dict of any attributes from hero sent with request
+    # Will only update attributes sent, so not all must be sent
+    hero_data = hero.model_dump(exclude_unset=True)
+    # Update hero retrieved from DB with values from request
+    for key, value in hero_data.items():
+        setattr(db_hero, key, value)
+    session.add(db_hero)
+    session.commit()
+    session.refresh(db_hero)
+    return db_hero
+
+@app.delete("/heroes/{id}")
+def delete_hero(*, session: Session = Depends(get_session)):
+    hero = session.get(Hero, id)
+    if not hero:
+        raise HTTPException(status_code=404, detail="Hero not found")
+    session.delete(hero)
+    session.commit()
+    return {"status": "OK"}
