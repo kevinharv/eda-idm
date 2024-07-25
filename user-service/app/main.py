@@ -13,7 +13,7 @@ class TeamBase(SQLModel):
 
 class Team(TeamBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    heros: list["Hero"] = Relationship(back_populates="team")
+    heroes: list["Hero"] = Relationship(back_populates="team")
 
 class TeamCreate(TeamBase):
     pass
@@ -47,12 +47,17 @@ class HeroUpdate(SQLModel):
     age: int | None = None
     team_id: int | None = None
 
+class HeroPublicWithTeam(HeroPublic):
+    team: TeamPublic | None = None
+
+class TeamPublicWithHeroes(TeamPublic):
+    heroes: list[HeroPublic] = []
+
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_DATABASE = os.getenv("DB_DATABASE")
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_DATABASE}"
-
 
 engine = create_engine(DATABASE_URL)
 
@@ -61,6 +66,7 @@ def get_session():
         yield session
 
 def create_db_and_tables():
+    print("Creating DB and tables")
     success = False
     while not success:
         try:
@@ -73,7 +79,9 @@ def create_db_and_tables():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print("Setting things up")
     create_db_and_tables()
+    print("Finished setting things up")
     yield
 
 
@@ -83,6 +91,11 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+# @app.on_event("startup")
+# def on_startup():
+#     create_db_and_tables()
 
 @app.get("/")
 def defaultHanlder():
@@ -104,7 +117,7 @@ def read_items(*, session: Session = Depends(get_session)):
     return items
 
 
-@app.get("/heros/{id}", response_model=HeroPublic)
+@app.get("/heros/{id}", response_model=HeroPublicWithTeam)
 def get_hero(*, session: Session = Depends(get_session)):
     hero = session.get(Hero, id)
     if not hero:
@@ -112,7 +125,7 @@ def get_hero(*, session: Session = Depends(get_session)):
     return hero
 
 
-@app.patch("/heroes/{id}", response_model=HeroPublic)
+@app.patch("/heroes/{id}", response_model=HeroPublicWithTeam)
 def update_hero(*, hero: Hero, session: Session = Depends(get_session)):
     # Get the hero from the DB - throw 404 if not in DB
     db_hero = session.get(Hero, id)
@@ -137,3 +150,12 @@ def delete_hero(*, session: Session = Depends(get_session)):
     session.delete(hero)
     session.commit()
     return {"status": "OK"}
+
+
+@app.post("/teams/", response_model=TeamPublic)
+def create_team(*, session: Session = Depends(get_session), team: TeamCreate):
+    db_team = Team.model_validate(team)
+    session.add(db_team)
+    session.commit()
+    session.refresh(db_team)
+    return db_team
