@@ -1,16 +1,51 @@
 import os
 from fastapi import FastAPI, Depends, HTTPException
 from contextlib import asynccontextmanager
-from sqlmodel import Field, Session, SQLModel, create_engine, select
+from sqlmodel import Field, Session, SQLModel, create_engine, select, Relationship
 from typing import List
 from time import sleep
 
-class Hero(SQLModel, table=True):
+
+
+class TeamBase(SQLModel):
+    name: str = Field(index=True)
+    headquarters: str
+
+class Team(TeamBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    heros: list["Hero"] = Relationship(back_populates="team")
+
+class TeamCreate(TeamBase):
+    pass
+
+class TeamPublic(TeamBase):
+    id: int
+
+class TeamUpdate(SQLModel):
+    name: str | None = None
+    headquarters: str | None = None
+
+class HeroBase(SQLModel):
     name: str = Field(index=True)
     secret_name: str
     age: int | None = Field(default=None, index=True)
+    team_id: int | None = Field(default=None, foreign_key="team.id")
 
+class Hero(HeroBase, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    team: Team | None = Relationship(back_populates="heroes")
+
+class HeroCreate(HeroBase):
+    pass
+
+class HeroPublic(HeroBase):
+    id: int
+
+class HeroUpdate(SQLModel):
+    name: str | None = None
+    secret_name: str | None = None
+    age: int | None = None
+    team_id: int | None = None
 
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
@@ -54,21 +89,22 @@ def defaultHanlder():
     return {"hello": "world"}
 
 
-@app.post("/heroes", response_model=Hero)
-def create_hero(*, hero: Hero, session: Session = Depends(get_session)):
-    session.add(hero)
+@app.post("/heroes", response_model=HeroPublic)
+def create_hero(*, hero: HeroCreate, session: Session = Depends(get_session)):
+    db_hero = Hero.model_validate(hero)
+    session.add(db_hero)
     session.commit()
-    session.refresh(hero)
-    return hero
+    session.refresh(db_hero)
+    return db_hero
 
 
-@app.get("/heroes", response_model=List[Hero])
+@app.get("/heroes", response_model=List[HeroPublic])
 def read_items(*, session: Session = Depends(get_session)):
     items = session.exec(select(Hero)).all()
     return items
 
 
-@app.get("/heros/{id}", response_model=Hero)
+@app.get("/heros/{id}", response_model=HeroPublic)
 def get_hero(*, session: Session = Depends(get_session)):
     hero = session.get(Hero, id)
     if not hero:
@@ -76,7 +112,7 @@ def get_hero(*, session: Session = Depends(get_session)):
     return hero
 
 
-@app.patch("/heroes/{id}")
+@app.patch("/heroes/{id}", response_model=HeroPublic)
 def update_hero(*, hero: Hero, session: Session = Depends(get_session)):
     # Get the hero from the DB - throw 404 if not in DB
     db_hero = session.get(Hero, id)
